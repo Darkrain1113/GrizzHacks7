@@ -14,4 +14,4 @@ Game Controls:
 
 >Goal: Play through the game and answer programming-related questions to progress! Each challenge is designed to help you learn Python while having fun.
 
-![doom](/sreenshots/0.jpg)
+![doom](sreenshots/0.jpg)
