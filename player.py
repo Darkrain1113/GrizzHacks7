@@ -1,6 +1,7 @@
 from settings import *
 import pygame as pg
 import math
+from xbox_controller import XboxController
 
 
 class Player:
@@ -11,75 +12,12 @@ class Player:
         self.shot = False
         self.health = PLAYER_MAX_HEALTH
         self.rel = 0
-        self.health_recovery_delay = 700
+        self.health_recovery_delay = 500
         self.time_prev = pg.time.get_ticks()
-        # diagonal movement correction
         self.diag_move_corr = 1 / math.sqrt(2)
-        # Controller settings
-        self.controller = None
-        self.controller_connected = False
-        self.check_controller()
 
-    def check_controller(self):
-        if pg.joystick.get_count() > 0:
-            self.controller = pg.joystick.Joystick(0)
-            self.controller.init()
-            self.controller_connected = True
-            print(f"Controller connected: {self.controller.get_name()}")
-
-    def handle_controller_input(self):
-        if not self.controller_connected:
-            return
-
-        # Movement
-        left_stick_x = -self.controller.get_axis(0)  # Invert X axis
-        left_stick_y = -self.controller.get_axis(1)  # Invert Y axis
-        right_stick_x = -self.controller.get_axis(2)  # Invert look rotation
-
-        # Increased deadzone for better drift handling
-        deadzone = 0.15  # Increased from 0.1 to 0.15
-        
-        # Apply deadzone with smooth transition
-        if abs(left_stick_x) < deadzone:
-            left_stick_x = 0
-        else:
-            left_stick_x = (abs(left_stick_x) - deadzone) * (1 / (1 - deadzone)) * (1 if left_stick_x > 0 else -1)
-            
-        if abs(left_stick_y) < deadzone:
-            left_stick_y = 0
-        else:
-            left_stick_y = (abs(left_stick_y) - deadzone) * (1 / (1 - deadzone)) * (1 if left_stick_y > 0 else -1)
-            
-        if abs(right_stick_x) < deadzone:
-            right_stick_x = 0
-        else:
-            right_stick_x = (abs(right_stick_x) - deadzone) * (1 / (1 - deadzone)) * (1 if right_stick_x > 0 else -1)
-
-        # Movement speed
-        speed = PLAYER_SPEED * self.game.delta_time
-        speed_sin = speed * math.sin(self.angle)
-        speed_cos = speed * math.cos(self.angle)
-
-        # Calculate movement based on stick input
-        dx = (left_stick_x * speed_cos - left_stick_y * speed_sin)
-        dy = (left_stick_x * speed_sin + left_stick_y * speed_cos)
-
-        # Apply diagonal movement correction if both axes are active
-        if abs(left_stick_x) > deadzone and abs(left_stick_y) > deadzone:
-            dx *= self.diag_move_corr
-            dy *= self.diag_move_corr
-
-        # Rotation based on right stick (reduced sensitivity for better control)
-        self.angle += right_stick_x * PLAYER_ROT_SPEED * self.game.delta_time * 1.5
-
-        # Check for shooting (right trigger)
-        if self.controller.get_axis(5) > 0.5 and not self.shot and not self.game.weapon.reloading:
-            self.game.sound.shotgun.play()
-            self.shot = True
-            self.game.weapon.reloading = True
-
-        # Check wall collision and move
-        self.check_wall_collision(dx, dy)
+        # Initialize Xbox controller
+        self.controller = XboxController()
 
     def recover_health(self):
         if self.check_health_recovery_delay() and self.health < PLAYER_MAX_HEALTH:
@@ -112,10 +50,23 @@ class Player:
                 self.game.weapon.reloading = True
 
     def movement(self):
-        if self.controller_connected:
-            self.handle_controller_input()
+        if self.controller.connected:
+            dx, dy, rotation, shooting = self.controller.get_movement(
+                self.angle, self.game.delta_time, PLAYER_SPEED
+            )
+            self.angle += rotation
+            self.angle %= math.tau
+            self.check_wall_collision(dx, dy)
+
+            if shooting and not self.shot and not self.game.weapon.reloading:
+                self.shot = True
+                self.game.weapon.reloading = True
+                self.game.sound.shotgun.play()
+            elif not shooting:
+                self.shot = False
             return
 
+        # Fallback to keyboard
         sin_a = math.sin(self.angle)
         cos_a = math.cos(self.angle)
         dx, dy = 0, 0
@@ -142,13 +93,11 @@ class Player:
             dx += -speed_sin
             dy += speed_cos
 
-        # diag move correction
         if num_key_pressed:
             dx *= self.diag_move_corr
             dy *= self.diag_move_corr
 
         self.check_wall_collision(dx, dy)
-
         self.angle %= math.tau
 
     def check_wall(self, x, y):
@@ -163,14 +112,13 @@ class Player:
 
     def draw(self):
         pg.draw.line(self.game.screen, 'yellow', (self.x * 100, self.y * 100),
-                    (self.x * 100 + WIDTH * math.cos(self.angle),
-                     self.y * 100 + WIDTH * math. sin(self.angle)), 2)
+                     (self.x * 100 + WIDTH * math.cos(self.angle),
+                      self.y * 100 + WIDTH * math.sin(self.angle)), 2)
         pg.draw.circle(self.game.screen, 'green', (self.x * 100, self.y * 100), 15)
 
     def mouse_control(self):
-        if self.controller_connected:
+        if self.controller.connected:
             return
-            
         mx, my = pg.mouse.get_pos()
         if mx < MOUSE_BORDER_LEFT or mx > MOUSE_BORDER_RIGHT:
             pg.mouse.set_pos([HALF_WIDTH, HALF_HEIGHT])
@@ -179,6 +127,9 @@ class Player:
         self.angle += self.rel * MOUSE_SENSITIVITY * self.game.delta_time
 
     def update(self):
+        # If controller gets unplugged, try reconnecting
+        if not self.controller.connected:
+            self.controller = XboxController()
         self.movement()
         self.mouse_control()
         self.recover_health()
