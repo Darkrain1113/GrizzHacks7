@@ -8,6 +8,7 @@ In this project, we explore how first-person shooter (FPS) games can be used as 
 
 Game Controls:
 
+> Xbox 360 controller
 > WASD keys for movement
 
 > Mouse for aiming and interaction
